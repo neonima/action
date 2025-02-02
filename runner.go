@@ -3,22 +3,24 @@ package action
 import (
 	"context"
 	"sync/atomic"
+	"time"
 )
 
 type Runners interface {
-	Start(context.Context)
+	Start(context.Context) *Runner
 	Send(Action)
-	Stop()
 }
 
 type Runner struct {
 	stream    chan Action
 	isStarted atomic.Bool
+	timeout   time.Duration
 }
 
-func NewRunner(opts ...func(*Runner)) Runners {
+func NewRunner(opts ...func(*Runner)) *Runner {
 	r := &Runner{
-		stream: make(chan Action, 20),
+		stream:  make(chan Action, 20),
+		timeout: 5 * time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -34,16 +36,22 @@ func WithChanSize(size int) func(*Runner) {
 	}
 }
 
-func (r *Runner) Start(ctx context.Context) {
+func (r *Runner) Start(ctx context.Context) *Runner {
 	if r.isStarted.Load() {
-		return
+		return r
 	}
 	r.isStarted.Store(true)
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	go func() {
+		t := time.NewTicker(10 * time.Millisecond)
 		for {
 			select {
 			case <-ctx.Done():
+				close(r.stream)
 				return
+			case <-t.C:
 			case action, ok := <-r.stream:
 				if !ok {
 					return
@@ -52,10 +60,7 @@ func (r *Runner) Start(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-func (r *Runner) Stop() {
-	close(r.stream)
+	return r
 }
 
 func (r *Runner) Send(a Action) {
