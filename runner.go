@@ -43,9 +43,12 @@ func New(opts ...func(*Runner)) *Runner {
 }
 
 // WithChanSize defines a specific chan size for the actor buffer message queue
-// default is 1
+// default is 1. If 0, will be ignored.
 func WithChanSize(size int) func(*Runner) {
 	return func(r *Runner) {
+		if size <= 0 {
+			return
+		}
 		r.stream = make(chan Action, size)
 	}
 }
@@ -121,8 +124,8 @@ func (r *Runner) startWithoutTick(ctx context.Context) {
 	}
 }
 
-// Send allow to send the action on the queue
-// exported to allow custom implementation, see action.go for examples (which should be enough for most cases)
+// Send enqueues an action onto the actor's queue.
+// It is exported to support custom implementations, but direct use is discouraged. See action.go for examples, which should suffice in most cases.
 func (r *Runner) Send(a Action) (context.Context, context.CancelFunc) {
 	r.stream <- a
 	return context.WithTimeout(r.ctx, r.timeout)
