@@ -80,7 +80,7 @@ func ActGet[T any](r Runners, action ActionReturn[T]) T {
 	}
 }
 
-// ActGet2 returns `A` and `B of the action
+// ActGet2 returns `A` and `B` of the action
 func ActGet2[A, B any](r Runners, action ActionReturn2[A, B]) (A, B) {
 	c := make(chan struct {
 		a A
