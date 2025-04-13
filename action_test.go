@@ -24,17 +24,11 @@ func TestAct(t *testing.T) {
 			expectedData: &K{toChange: "world"},
 			timeout:      time.Minute,
 		},
-		{
-			title:        "Should timeout before sending data",
-			data:         &K{toChange: "hello"},
-			expectedData: &K{toChange: "hello"},
-			timeout:      0,
-		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			action.Act(r, func() {
 				tc.data.toChange = tc.expectedData.toChange
@@ -57,17 +51,11 @@ func TestActGet(t *testing.T) {
 			expectedData: "world",
 			timeout:      time.Minute,
 		},
-		{
-			title:        "Should timeout before sending data",
-			data:         "world",
-			expectedData: "",
-			timeout:      0,
-		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			res := action.ActGet[string](r, func() string {
 				return tc.data
@@ -98,14 +86,6 @@ func TestActErr(t *testing.T) {
 			timeout:      time.Minute,
 		},
 		{
-			title:        "Should timeout before sending data",
-			data:         &K{toChange: "hello"},
-			expectedData: &K{toChange: "hello"},
-			err:          nil,
-			expectedErr:  require.Error,
-			timeout:      0,
-		},
-		{
 			title:        "Should return the error if one occurs",
 			data:         &K{toChange: "hello"},
 			expectedData: &K{toChange: "world"},
@@ -117,7 +97,7 @@ func TestActErr(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			err := action.ActErr(r, func() error {
 				tc.data.toChange = tc.expectedData.toChange
@@ -146,19 +126,11 @@ func TestActGet2(t *testing.T) {
 			expectedB: 100,
 			timeout:   time.Minute,
 		},
-		{
-			title:     "Should timeout before sending data",
-			a:         "hello",
-			expectedA: "",
-			b:         100,
-			expectedB: 0,
-			timeout:   0,
-		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			a, b := action.ActGet2[string, int](r, func() (string, int) {
 				return tc.a, tc.b
@@ -190,21 +162,11 @@ func TestActGet3(t *testing.T) {
 			expectedC: 0.5,
 			timeout:   time.Minute,
 		},
-		{
-			title:     "Should timeout before sending data",
-			a:         "hello",
-			expectedA: "",
-			b:         100,
-			expectedB: 0,
-			c:         0.5,
-			expectedC: 0,
-			timeout:   0,
-		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			a, b, c := action.ActGet3[string, int, float32](r, func() (string, int, float32) {
 				return tc.a, tc.b, tc.c
@@ -234,14 +196,6 @@ func TestActGetErr(t *testing.T) {
 			timeout:      time.Minute,
 		},
 		{
-			title:        "Should timeout before sending data",
-			data:         "hello",
-			expectedData: "",
-			err:          nil,
-			expectedErr:  require.Error,
-			timeout:      0,
-		},
-		{
 			title:        "Should return the error if one occurs",
 			data:         "hello",
 			expectedData: "",
@@ -253,7 +207,7 @@ func TestActGetErr(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.title, func(t *testing.T) {
-			r := action.New(action.WithoutTick(), action.WithTimeout(tc.timeout))
+			r := action.New()
 			require.NoError(t, r.Start(t.Context()))
 			res, err := action.ActGetErr[string](r, func() (string, error) {
 				if tc.err != nil {
