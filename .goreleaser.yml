@@ -1,0 +1,12 @@
+project_name: action
+
+builds:
+  - skip: true
+
+release:
+  github:
+    owner: neonima
+    name: action
+
+archives:
+  - format: tar.gz
