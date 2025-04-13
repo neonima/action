@@ -9,20 +9,21 @@ type ActionReturn3[A, B, C any] func() (A, B, C)
 
 type Actioner chan Action
 
+// ActGetErr returns `T` and  an error of the action
 func ActGetErr[T any](r Runners, action ActionReturnWithError[T]) (T, error) {
 	c := make(chan struct {
 		t   T
 		err error
-	})
+	}, 1)
 
-	ctx, cancel := r.Send(func() {
+	r.Send(func() {
 		t, err := action()
 		c <- struct {
 			t   T
 			err error
 		}{t, err}
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		var t T
@@ -32,12 +33,13 @@ func ActGetErr[T any](r Runners, action ActionReturnWithError[T]) (T, error) {
 	}
 }
 
+// ActErr returns the error of the action
 func ActErr(r Runners, action ActionErr) error {
-	c := make(chan error)
-	ctx, cancel := r.Send(func() {
+	c := make(chan error, 1)
+	r.Send(func() {
 		c <- action()
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -46,13 +48,14 @@ func ActErr(r Runners, action ActionErr) error {
 	}
 }
 
+// Act only execute the action
 func Act(r Runners, action Action) {
-	c := make(chan any)
-	ctx, cancel := r.Send(func() {
+	c := make(chan any, 1)
+	r.Send(func() {
 		action()
 		c <- struct{}{}
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		return
@@ -61,12 +64,13 @@ func Act(r Runners, action Action) {
 	}
 }
 
+// ActGet returns `T` of the action
 func ActGet[T any](r Runners, action ActionReturn[T]) T {
 	c := make(chan T)
-	ctx, cancel := r.Send(func() {
+	r.Send(func() {
 		c <- action()
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		var t T
@@ -76,20 +80,21 @@ func ActGet[T any](r Runners, action ActionReturn[T]) T {
 	}
 }
 
+// ActGet2 returns `A` and `B of the action
 func ActGet2[A, B any](r Runners, action ActionReturn2[A, B]) (A, B) {
 	c := make(chan struct {
 		a A
 		b B
-	})
+	}, 1)
 
-	ctx, cancel := r.Send(func() {
+	r.Send(func() {
 		a, b := action()
 		c <- struct {
 			a A
 			b B
 		}{a: a, b: b}
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		var a A
@@ -100,13 +105,14 @@ func ActGet2[A, B any](r Runners, action ActionReturn2[A, B]) (A, B) {
 	}
 }
 
+// ActGet3 returns `A`, `B  and `C` of the action
 func ActGet3[A, B, C any](r Runners, action ActionReturn3[A, B, C]) (A, B, C) {
 	ch := make(chan struct {
 		a A
 		b B
 		c C
-	})
-	ctx, cancel := r.Send(func() {
+	}, 1)
+	r.Send(func() {
 		a, b, c := action()
 		ch <- struct {
 			a A
@@ -114,7 +120,7 @@ func ActGet3[A, B, C any](r Runners, action ActionReturn3[A, B, C]) (A, B, C) {
 			c C
 		}{a: a, b: b, c: c}
 	})
-	defer cancel()
+	ctx := r.Ctx()
 	select {
 	case <-ctx.Done():
 		var a A

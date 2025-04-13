@@ -3,36 +3,29 @@ package action
 import (
 	"context"
 	"sync/atomic"
-	"time"
 )
 
 type Runners interface {
 	Start(context.Context) error
-	Send(Action) (context.Context, context.CancelFunc)
+	Send(Action)
+	Ctx() context.Context
 }
 
 type Runner struct {
-	stream       chan Action
-	isStarted    atomic.Bool
-	timeout      time.Duration
-	tickDuration time.Duration
-	noTick       bool
-	ctx          context.Context
+	stream    chan Action
+	isStarted atomic.Bool
+	ctx       context.Context
+	errCh     chan error
 }
 
 // New returns a new Runner with default configuration settings.
 //
 // The default settings are:
-//   - tickDuration: 5ms
-//   - timeout: 1 minute
 //   - stream channel capacity: 1
-//   - noTick: true
 func New(opts ...func(*Runner)) *Runner {
 	r := &Runner{
-		stream:       make(chan Action, 1),
-		timeout:      time.Minute,
-		tickDuration: 5 * time.Millisecond,
-		noTick:       true,
+		stream: make(chan Action, 1),
+		errCh:  make(chan error, 1),
 	}
 
 	for _, opt := range opts {
@@ -53,27 +46,7 @@ func WithChanSize(size int) func(*Runner) {
 	}
 }
 
-// WithTickDuration defines the Tick rate duration
-func WithTickDuration(duration time.Duration) func(*Runner) {
-	return func(r *Runner) {
-		r.tickDuration = duration
-	}
-}
-
-// WithoutTick allows the runner to loop as fast as possible
-func WithoutTick() func(*Runner) {
-	return func(r *Runner) {
-		r.noTick = true
-	}
-}
-
-func WithTimeout(timeout time.Duration) func(*Runner) {
-	return func(r *Runner) {
-		r.timeout = timeout
-	}
-}
-
-// Start startes the runner on a separated goroutine
+// Start starts the runner on a separated goroutine
 func (r *Runner) Start(ctx context.Context) error {
 	if r.isStarted.Load() {
 		return ErrAlreadyStarted
@@ -83,22 +56,16 @@ func (r *Runner) Start(ctx context.Context) error {
 		return ErrNilContext
 	}
 	r.ctx = ctx
-	if r.noTick {
-		go r.startWithoutTick(ctx)
-		return nil
-	}
 	go r.start(ctx)
 	return nil
 }
 
 func (r *Runner) start(ctx context.Context) {
-	t := time.NewTicker(10 * time.Millisecond)
-	defer t.Stop()
 	for {
 		select {
-		case <-t.C:
 		case <-ctx.Done():
 			close(r.stream)
+			r.errCh <- ctx.Err()
 			return
 		case action, ok := <-r.stream:
 			if !ok {
@@ -109,24 +76,19 @@ func (r *Runner) start(ctx context.Context) {
 	}
 }
 
-func (r *Runner) startWithoutTick(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			close(r.stream)
-			return
-		case action, ok := <-r.stream:
-			if !ok {
-				return
-			}
-			action()
-		}
-	}
+// WaitStopped blocks until the runner shuts down
+// and returns the shutdown reason, typically context.Canceled.
+func (r *Runner) WaitStopped() error {
+	return <-r.errCh
 }
 
 // Send enqueues an action onto the actor's queue.
 // It is exported to support custom implementations, but direct use is discouraged. See action.go for examples, which should suffice in most cases.
-func (r *Runner) Send(a Action) (context.Context, context.CancelFunc) {
+func (r *Runner) Send(a Action) {
 	r.stream <- a
-	return context.WithTimeout(r.ctx, r.timeout)
+}
+
+// Ctx returns the context
+func (r *Runner) Ctx() context.Context {
+	return r.ctx
 }
