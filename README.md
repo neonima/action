@@ -16,7 +16,7 @@
 Install via `go get`:
 
 ```bash
-go get github.com/neonima/action
+go install github.com/neonima/action@latest
 ```
 
 ## Quick Start
