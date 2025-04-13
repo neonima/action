@@ -1,7 +1,6 @@
-
 # Action: A Go Actor Model Library
 
-**Action** is a lightweight actor model library for Go that simplifies concurrency by encapsulating state and message handling within actors. This approach improves code maintainability and safety in high-concurrency scenarios.
+**Action** is a lightweight actor model library for Go that simplifies concurrency by encapsulating state and message handling within actors. By enforcing single-threaded execution of actions, it avoids the complexity of manual synchronization (like mutexes), trading fine-grained control for predictability and maintainability — especially in high-concurrency scenarios.
 
 ## Features
 
@@ -72,6 +71,85 @@ func main() {
 	now := svc.GetCurrentTime()
 	fmt.Println("Current time:", now)
 }
+```
+
+## Context-Aware Actions
+
+If you want your action to be cancelable or timeout-aware, you can use the runner's context directly inside the action. For example:
+
+### Basic Pattern: Respect runner shutdown
+
+Use this pattern if your action might block or perform non-trivial work. For fast operations, cancellation checks are typically unnecessary and can be omitted for simplicity.
+
+```go
+ActErr(r, func() error {
+	select {
+	case <-r.Ctx().Done():
+		return r.Ctx().Err()
+	default:
+		// continue execution
+		return doSomething()
+	}
+})
+```
+
+You could choose to include this check by default in your actions, especially when you want to short-circuit execution without custom timeouts.
+
+### Custom Timeout Pattern
+
+You can combine a custom timeout with the runner's shutdown context to ensure your action aborts in either case:
+
+```go
+ctx, cancel := context.WithTimeout(r.Ctx(), 2*time.Second)
+defer cancel()
+
+ActErr(r, func() error {
+	select {
+	case <-r.Ctx().Done():
+		return r.Ctx().Err()
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return doSomething()
+	}
+})
+```
+
+### Extended Pattern: Work with periodic checks or long tasks
+
+You can also use the context in long-running loops:
+
+```go
+ActErr(r, func() error {
+	ctx := r.Ctx()
+	for i := 0; i < 100; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Simulate some work
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil
+})
+```
+
+### Alternative: Pass the context into your own functions
+
+If your code is broken into helpers, just pass the runner's context through:
+
+```go
+func myOp(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+ActErr(r, func() error {
+	return myOp(r.Ctx())
+})
 ```
 
 ## Advanced Example: Optimized DataStore
@@ -152,10 +230,10 @@ func (s *DataStoreService) GetLastValue() int {
 	})
 }
 
-// MutexDataStoreService uses a mutex to protect concurrent access to DataStore.
+// MutexDataStoreService uses a RWMutex to protect concurrent access to DataStore.
 type MutexDataStoreService struct {
 	ds  *DataStore
-	mtx sync.Mutex
+	mtx sync.RWMutex
 }
 
 // NewMutexDataStoreService creates a new MutexDataStoreService.
@@ -165,17 +243,17 @@ func NewMutexDataStoreService(capacity int) *MutexDataStoreService {
 	}
 }
 
-// AddValue adds a value using mutex protection.
+// AddValue adds a value using write-lock protection.
 func (s *MutexDataStoreService) AddValue(val int) {
 	s.mtx.Lock()
+	defer s.mtx.Unlock()
 	s.ds.Add(val)
-	s.mtx.Unlock()
 }
 
-// GetLastValue retrieves the last value using mutex protection.
+// GetLastValue retrieves the last value using read-lock protection.
 func (s *MutexDataStoreService) GetLastValue() int {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
 	return s.ds.GetLast()
 }
 
@@ -203,7 +281,29 @@ func main() {
   Wraps the DataStore inside an actor. This model safely serializes access to the data structure without explicit locks, potentially reducing contention overhead.
 
 - **MutexDataStoreService (Mutex-based):**  
-  Uses a standard mutex to protect DataStore. Although mutex operations are very fast for simple tasks, the overhead may become more noticeable under high contention or complex operations.
+  Uses a `sync.RWMutex` to protect concurrent access. `AddValue` acquires a write lock, while `GetLastValue` uses a read lock. Proper `defer` usage ensures lock release.
+
+## Words of Caution
+
+While **Action** simplifies concurrent programming, it's important to understand the boundaries of what it does (and doesn't) manage for you:
+
+- **No built-in cancellation:**  
+  Once an action is enqueued, it will run. If cancellation is important, check `r.Ctx().Done()` inside your action.
+
+- **Timeouts are user-defined:**  
+  The library does not impose timeouts or deadlines on action execution. Use `context.WithTimeout(r.Ctx(), ...)` if needed.
+
+- **No retry or panic recovery:**  
+  Actions are executed as-is. If you need retries or want to catch panics, you must wrap that logic in your action.
+
+- **Do not send to a stopped runner:**  
+  Sending to a runner after its context has been canceled will panic. Use `r.Ctx().Err()` to check if the runner is still alive.
+
+- **Design actions to be idempotent when possible:**  
+  Especially when coordinating across multiple actors, using idempotent or safe-to-discard actions can simplify error recovery and retries.
+
+- **Tradeoff between control and simplicity:**  
+  This library favors predictable, serialized execution over fine-grained parallel control. It is not a one-size-fits-all tool but excels where reduced mental overhead is preferred over maximizing throughput.
 
 ## Documentation
 
@@ -244,6 +344,18 @@ Contributions are welcome! If you have ideas, bug fixes, or improvements:
 
 For major changes, please open an [issue](https://github.com/neonima/action/issues) first to discuss what you would like to modify.
 
+## Potential Improvements
+
+The following improvements are being considered while preserving the library’s current vision: keeping it minimal, intentional, and free from unnecessary complexity.
+
+- **Context-aware wrappers**: Helpers that reduce boilerplate for timeout-aware or cancellation-sensitive actions.
+- **Optional panic recovery**: Tools to isolate and log panics within actions without compromising runner stability.
+- **Queue drain control**: Graceful shutdown utilities like `Flush()` or `DrainAndStop()` for smoother exits.
+- **Observability hooks**: Lightweight hooks or interfaces to integrate queue stats or action timings into existing monitoring systems.
+
+We’re intentionally avoiding features that would increase cognitive overhead or compromise the simplicity of the actor model. Feedback and ideas are welcome — especially if they fit within this philosophy.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
