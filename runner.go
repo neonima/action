@@ -16,6 +16,7 @@ type Runner struct {
 	stream    chan Action
 	isStarted atomic.Bool
 	ctx       context.Context
+	cancel    context.CancelFunc
 	hooks     []func(context.Context) error
 	done      chan struct{}
 	err       atomic.Pointer[error]
@@ -69,27 +70,24 @@ func (r *Runner) Start(ctx context.Context) error {
 		return ErrAlreadyStarted
 	}
 	r.isStarted.Store(true)
-	if ctx == nil {
-		return ErrNilContext
-	}
-	r.ctx = ctx
-	go r.start(ctx)
+	r.ctx, r.cancel = context.WithCancel(ctx)
+	go r.start(r.ctx)
 	return nil
 }
 
 func (r *Runner) start(ctx context.Context) {
 	defer func() {
 		r.Once.Do(func() {
+			r.cancel()
 			close(r.stream)
 			close(r.done)
 		})
 	}()
 	for {
+		// Drain queued actions before checking context cancellation.
+		// Go's select is random when both cases are ready — without
+		// this, queued work gets dropped on shutdown.
 		select {
-		case <-ctx.Done():
-			err := ctx.Err()
-			r.err.Store(&err)
-			return
 		case action, ok := <-r.stream:
 			if !ok {
 				return
@@ -99,6 +97,24 @@ func (r *Runner) start(ctx context.Context) {
 				if err := h(ctx); err != nil {
 					r.err.Store(&err)
 					return
+				}
+			}
+		default:
+			select {
+			case <-ctx.Done():
+				err := ctx.Err()
+				r.err.Store(&err)
+				return
+			case action, ok := <-r.stream:
+				if !ok {
+					return
+				}
+				action()
+				for _, h := range r.hooks {
+					if err := h(ctx); err != nil {
+						r.err.Store(&err)
+						return
+					}
 				}
 			}
 		}

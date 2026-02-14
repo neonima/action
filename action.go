@@ -66,7 +66,7 @@ func Act(r Runners, action Action) {
 
 // ActGet returns `T` of the action
 func ActGet[T any](r Runners, action ActionReturn[T]) T {
-	c := make(chan T)
+	c := make(chan T, 1)
 	r.Send(func() {
 		c <- action()
 	})
